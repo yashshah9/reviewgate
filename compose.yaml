@@ -1,0 +1,56 @@
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reviewgate
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d reviewgate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  reviewgate:
+    build:
+      context: ..
+      dockerfile: reviewgate/docker/Dockerfile
+      target: runtime
+    ports:
+      - "8092:8092"
+    environment:
+      REVIEWGATE_HOST: 0.0.0.0
+      REVIEWGATE_PORT: 8092
+      REVIEWGATE_AUTH_DRIVER: api_key
+      REVIEWGATE_AUDIT_DRIVER: postgres
+      REVIEWGATE_QUEUE_DRIVER: redis
+      REVIEWGATE_REDIS_URL: redis://redis:6379/0
+      REVIEWGATE_POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/reviewgate
+      REVIEWGATE_API_KEYS: "dev-key:demo-tenant"
+      REVIEWGATE_ADMIN_KEYS: admin-key
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  integration:
+    build:
+      context: ..
+      dockerfile: reviewgate/docker/Dockerfile
+      target: test
+    environment:
+      REVIEWGATE_BASE_URL: http://reviewgate:8092
+      RUN_DOCKER_INTEGRATION: "1"
+    depends_on:
+      reviewgate:
+        condition: service_healthy
+    command: ["pytest", "tests/test_integration_docker.py", "-v"]

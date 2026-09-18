@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "reviewgate"
+version = "0.1.0"
+description = "AI code review and security gatekeeper for PR diffs"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Yash Shah", email = "yash376351@gmail.com" }]
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "structlog>=24.1",
+    "platformkit>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yashshah9/reviewgate"
+Repository = "https://github.com/yashshah9/reviewgate"
+Issues = "https://github.com/yashshah9/reviewgate/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "ruff>=0.4",
+    "mypy>=1.9",
+    "platformkit[dev]",
+]
+
+[project.scripts]
+reviewgate = "reviewgate.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reviewgate"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/reviewgate/data/cases.json" = "reviewgate/data/cases.json"
+"src/reviewgate/py.typed" = "reviewgate/py.typed"
+
+[tool.uv.sources]
+platformkit = { path = "../platformkit", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["reviewgate"]

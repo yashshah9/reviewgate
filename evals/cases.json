@@ -1,0 +1,60 @@
+{
+  "cases": [
+    {
+      "id": "clean-refactor",
+      "diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1,3 +1,4 @@\n def greet(name):\n+    name = name.strip()\n     return f\"hello {name}\"\n",
+      "expect_decision": "allow",
+      "max_risk": 0.2
+    },
+    {
+      "id": "aws-key-block",
+      "diff": "diff --git a/config.py b/config.py\n--- a/config.py\n+++ b/config.py\n@@ -1,2 +1,3 @@\n # config\n+AWS_KEY = \"AKIAIOSFODNN7EXAMPLE\"\n",
+      "expect_decision": "block",
+      "must_find_rule": "secret-aws-key",
+      "min_risk": 0.7
+    },
+    {
+      "id": "api-key-block",
+      "diff": "diff --git a/settings.py b/settings.py\n--- a/settings.py\n+++ b/settings.py\n@@ -1,1 +1,2 @@\n+api_key = \"demo_secret_value_not_real_12345\"\n",
+      "expect_decision": "block",
+      "must_find_rule": "secret-generic-api-key"
+    },
+    {
+      "id": "sql-injection",
+      "diff": "diff --git a/db.py b/db.py\n--- a/db.py\n+++ b/db.py\n@@ -1,2 +1,3 @@\n def lookup(user_id):\n+    cur.execute(f\"SELECT * FROM users WHERE id = {user_id}\")\n",
+      "expect_decision": "block",
+      "must_find_rule": "inj-sql-fstring"
+    },
+    {
+      "id": "authz-bypass",
+      "diff": "diff --git a/api.py b/api.py\n--- a/api.py\n+++ b/api.py\n@@ -1,2 +1,3 @@\n def delete_user(uid):\n+    allow_all = True\n     return store.delete(uid)\n",
+      "expect_decision": "block",
+      "must_find_rule": "authz-allow-all"
+    },
+    {
+      "id": "pickle-danger",
+      "diff": "diff --git a/cache.py b/cache.py\n--- a/cache.py\n+++ b/cache.py\n@@ -1,2 +1,3 @@\n import pickle\n+obj = pickle.loads(blob)\n",
+      "expect_decision": "block",
+      "must_find_rule": "danger-pickle"
+    },
+    {
+      "id": "debug-warn",
+      "diff": "diff --git a/main.py b/main.py\n--- a/main.py\n+++ b/main.py\n@@ -1,2 +1,3 @@\n+DEBUG = True\n app = create_app()\n",
+      "expect_decision": "warn",
+      "must_find_rule": "policy-debug-true"
+    },
+    {
+      "id": "shell-true-warn",
+      "diff": "diff --git a/jobs.py b/jobs.py\n--- a/jobs.py\n+++ b/jobs.py\n@@ -1,2 +1,3 @@\n import subprocess\n+subprocess.run(cmd, shell=True)\n",
+      "expect_decision": "warn",
+      "must_find_rule": "danger-shell-true"
+    },
+    {
+      "id": "no-false-positive-eval-name",
+      "diff": "diff --git a/metrics.py b/metrics.py\n--- a/metrics.py\n+++ b/metrics.py\n@@ -1,2 +1,3 @@\n+evaluation_score = 0.95\n",
+      "expect_decision": "allow",
+      "must_not_find_rule": "danger-eval",
+      "max_risk": 0.2
+    }
+  ]
+}
