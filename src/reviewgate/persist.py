@@ -21,10 +21,17 @@ CREATE TABLE IF NOT EXISTS reviewgate_reviews (
     policy_pack TEXT NOT NULL,
     latency_ms INTEGER NOT NULL,
     suppressed JSONB NOT NULL,
-    created_at DOUBLE PRECISION NOT NULL
+    created_at DOUBLE PRECISION NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS reviewgate_reviews_created_idx
     ON reviewgate_reviews (created_at DESC);
+CREATE INDEX IF NOT EXISTS reviewgate_reviews_tenant_idx
+    ON reviewgate_reviews (tenant_id);
+CREATE TABLE IF NOT EXISTS reviewgate_suppressions (
+    id TEXT PRIMARY KEY
+);
+ALTER TABLE reviewgate_reviews ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT '';
 """
 
 
@@ -37,6 +44,10 @@ class ReviewBackend(Protocol):
     def load_recent(self, *, limit: int = 500) -> list[ReviewResult]: ...
 
     def get_review(self, review_id: str) -> ReviewResult | None: ...
+
+    def load_suppressions(self) -> list[str]: ...
+
+    def save_suppressions(self, ids: list[str]) -> None: ...
 
     def clear(self) -> None: ...
 
@@ -76,6 +87,7 @@ def _review_from_row(row: Any) -> ReviewResult:
     suppressed_raw = row[10]
     if isinstance(suppressed_raw, str):
         suppressed_raw = json.loads(suppressed_raw)
+    tenant_id = str(row[12]) if len(row) > 12 and row[12] is not None else ""
     return ReviewResult(
         id=str(row[0]),
         repo=str(row[1]),
@@ -89,7 +101,14 @@ def _review_from_row(row: Any) -> ReviewResult:
         latency_ms=int(row[9]),
         suppressed=[str(x) for x in suppressed_raw],
         created_at=float(row[11]),
+        tenant_id=tenant_id,
     )
+
+
+_SELECT_COLS = (
+    "id, repo, pr_number, title, risk_score, decision, findings, "
+    "comment, policy_pack, latency_ms, suppressed, created_at, tenant_id"
+)
 
 
 class PostgresReviewStore:
@@ -113,8 +132,8 @@ class PostgresReviewStore:
             conn.execute(
                 "INSERT INTO reviewgate_reviews "
                 "(id, repo, pr_number, title, risk_score, decision, findings, comment, "
-                "policy_pack, latency_ms, suppressed, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s::jsonb,%s) "
+                "policy_pack, latency_ms, suppressed, created_at, tenant_id) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s::jsonb,%s,%s) "
                 "ON CONFLICT (id) DO NOTHING",
                 (
                     review.id,
@@ -129,19 +148,16 @@ class PostgresReviewStore:
                     review.latency_ms,
                     json.dumps(review.suppressed),
                     review.created_at,
+                    review.tenant_id,
                 ),
             )
             conn.commit()
 
     def load_recent(self, *, limit: int = 500) -> list[ReviewResult]:
-        # Newest `limit` rows, returned oldest→newest (matches in-memory trim).
         with self._psycopg.connect(self._dsn) as conn:
             rows = conn.execute(
-                "SELECT id, repo, pr_number, title, risk_score, decision, findings, "
-                "comment, policy_pack, latency_ms, suppressed, created_at "
-                "FROM ("
-                "  SELECT id, repo, pr_number, title, risk_score, decision, findings, "
-                "  comment, policy_pack, latency_ms, suppressed, created_at "
+                f"SELECT {_SELECT_COLS} FROM ("
+                f"  SELECT {_SELECT_COLS} "
                 "  FROM reviewgate_reviews ORDER BY created_at DESC LIMIT %s"
                 ") recent ORDER BY created_at ASC",
                 (limit,),
@@ -151,18 +167,32 @@ class PostgresReviewStore:
     def get_review(self, review_id: str) -> ReviewResult | None:
         with self._psycopg.connect(self._dsn) as conn:
             row = conn.execute(
-                "SELECT id, repo, pr_number, title, risk_score, decision, findings, "
-                "comment, policy_pack, latency_ms, suppressed, created_at "
-                "FROM reviewgate_reviews WHERE id = %s",
+                f"SELECT {_SELECT_COLS} FROM reviewgate_reviews WHERE id = %s",
                 (review_id,),
             ).fetchone()
         if row is None:
             return None
         return _review_from_row(row)
 
+    def load_suppressions(self) -> list[str]:
+        with self._psycopg.connect(self._dsn) as conn:
+            rows = conn.execute("SELECT id FROM reviewgate_suppressions ORDER BY id").fetchall()
+        return [str(r[0]) for r in rows]
+
+    def save_suppressions(self, ids: list[str]) -> None:
+        with self._psycopg.connect(self._dsn) as conn:
+            conn.execute("DELETE FROM reviewgate_suppressions")
+            for item in ids:
+                conn.execute(
+                    "INSERT INTO reviewgate_suppressions (id) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (item,),
+                )
+            conn.commit()
+
     def clear(self) -> None:
         with self._psycopg.connect(self._dsn) as conn:
             conn.execute("DELETE FROM reviewgate_reviews")
+            conn.execute("DELETE FROM reviewgate_suppressions")
             conn.commit()
 
 

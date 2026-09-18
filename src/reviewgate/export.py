@@ -85,7 +85,7 @@ def to_sarif(result: ReviewResult) -> dict[str, Any]:
     }
 
 
-def to_check_run(result: ReviewResult) -> dict[str, Any]:
+def to_check_run(result: ReviewResult, *, head_sha: str | None = None) -> dict[str, Any]:
     """GitHub Checks API–shaped payload (ready to POST to /repos/.../check-runs)."""
     conclusion = _CHECK_CONCLUSION.get(result.decision, "neutral")
     summary_lines = [
@@ -98,8 +98,7 @@ def to_check_run(result: ReviewResult) -> dict[str, Any]:
     ]
     annotations = []
     for f in result.findings[:50]:
-        if f.line is None:
-            continue
+        line = f.line if f.line is not None else 1
         level = {
             Severity.critical: "failure",
             Severity.high: "failure",
@@ -109,17 +108,18 @@ def to_check_run(result: ReviewResult) -> dict[str, Any]:
         annotations.append(
             {
                 "path": f.file,
-                "start_line": f.line,
-                "end_line": f.line,
+                "start_line": line,
+                "end_line": line,
                 "annotation_level": level,
                 "title": f.title,
                 "message": f"{f.excerpt}\n\n{f.remediation}",
             }
         )
 
+    sha = (head_sha or "").strip() or "0" * 40
     return {
         "name": "reviewgate",
-        "head_sha": "0000000000000000000000000000000000000000",
+        "head_sha": sha,
         "status": "completed",
         "conclusion": conclusion,
         "output": {

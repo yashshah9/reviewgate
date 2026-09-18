@@ -30,7 +30,7 @@ SECRET = """diff --git a/cfg.py b/cfg.py
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    api_module.settings.api_keys = "dev-key:demo-tenant"
+    api_module.settings.api_keys = "dev-key:demo-tenant,other-key:other-tenant"
     api_module.settings.admin_keys = "admin-key"
     api_module.settings.auth_driver = "api_key"
     api_module.settings.audit_driver = "memory"
@@ -47,6 +47,7 @@ def client() -> Iterator[TestClient]:
 
 AUTH = {"Authorization": "Bearer dev-key"}
 ADMIN = {"Authorization": "Bearer admin-key"}
+OTHER = {"Authorization": "Bearer other-key"}
 
 
 def test_health(client: TestClient) -> None:
@@ -91,13 +92,18 @@ def test_github_webhook(client: TestClient) -> None:
         json={
             "action": "opened",
             "repository": {"full_name": "acme/app"},
-            "pull_request": {"number": 7, "title": "add key"},
+            "pull_request": {
+                "number": 7,
+                "title": "add key",
+                "head": {"sha": "abc123def456abc123def456abc123def456ab"},
+            },
             "diff": SECRET,
         },
     ).json()
     assert body["status"] == "processed"
     assert body["review"]["decision"] == "block"
     assert body["review"]["pr_number"] == 7
+    assert body["check_run"]["head_sha"] == "abc123def456abc123def456abc123def456ab"
 
 
 def test_suppression_requires_admin(client: TestClient) -> None:
@@ -192,6 +198,68 @@ def test_reset_requires_admin(client: TestClient) -> None:
     assert client.post("/v1/admin/reset", headers=ADMIN).status_code == 200
 
 
+def test_tenant_isolation(client: TestClient) -> None:
+    a = client.post(
+        "/v1/review",
+        headers=AUTH,
+        json={"diff": SECRET, "repo": "acme/a"},
+    ).json()
+    b = client.post(
+        "/v1/review",
+        headers=OTHER,
+        json={"diff": SECRET, "repo": "acme/b"},
+    ).json()
+    assert a["tenant_id"] == "demo-tenant"
+    assert b["tenant_id"] == "other-tenant"
+    assert client.get(f"/v1/reviews/{b['id']}", headers=AUTH).status_code == 404
+    assert client.get(f"/v1/reviews/{a['id']}", headers=OTHER).status_code == 404
+    assert client.get(f"/v1/reviews/{a['id']}", headers=AUTH).status_code == 200
+    listed = client.get("/v1/reviews", headers=AUTH).json()
+    assert all(r["id"] != b["id"] for r in listed["reviews"])
+    admin_list = client.get("/v1/reviews", headers=ADMIN).json()
+    ids = {r["id"] for r in admin_list["reviews"]}
+    assert a["id"] in ids and b["id"] in ids
+
+
+def test_suppression_roundtrip_with_backend() -> None:
+    from reviewgate.store import ReviewResult, ReviewStore
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.rows: list[ReviewResult] = []
+            self.suppress: set[str] = set()
+
+        def ensure_schema(self) -> None:
+            return None
+
+        def load_recent(self, *, limit: int = 500) -> list[ReviewResult]:
+            return list(self.rows)[-limit:]
+
+        def get_review(self, review_id: str) -> ReviewResult | None:
+            return None
+
+        def load_suppressions(self) -> list[str]:
+            return list(self.suppress)
+
+        def save_suppressions(self, ids: list[str]) -> None:
+            self.suppress = set(ids)
+
+        def save_review(self, review: ReviewResult) -> None:
+            self.rows.append(review)
+
+        def clear(self) -> None:
+            self.rows.clear()
+            self.suppress.clear()
+
+    backend = FakeStore()
+    store = ReviewStore(backend=backend)
+    store.suppress(["secret-aws-key"])
+    assert "secret-aws-key" in backend.suppress
+    store2 = ReviewStore(backend=backend)
+    store2.load()
+    assert "secret-aws-key" in store2.suppressions
+
+
 def test_golden_suite_gate() -> None:
     results, rate = run_golden_suite()
     failed = [r for r in results if not r.passed]
@@ -232,6 +300,7 @@ def test_memory_backend_reload_roundtrip() -> None:
     class FakeStore:
         def __init__(self) -> None:
             self.rows: list[ReviewResult] = []
+            self.suppress: set[str] = set()
 
         def ensure_schema(self) -> None:
             return None
@@ -245,11 +314,18 @@ def test_memory_backend_reload_roundtrip() -> None:
                     return r
             return None
 
+        def load_suppressions(self) -> list[str]:
+            return list(self.suppress)
+
+        def save_suppressions(self, ids: list[str]) -> None:
+            self.suppress = set(ids)
+
         def save_review(self, review: ReviewResult) -> None:
             self.rows.append(review)
 
         def clear(self) -> None:
             self.rows.clear()
+            self.suppress.clear()
 
     backend = FakeStore()
     store = ReviewStore(backend=backend)

@@ -95,10 +95,18 @@ def _review_dict(r: Any) -> dict[str, Any]:
         "decision": r.decision,
         "policy_pack": r.policy_pack,
         "latency_ms": r.latency_ms,
+        "tenant_id": r.tenant_id,
         "findings": [_finding_dict(f) for f in r.findings],
         "comment_markdown": r.comment,
         "suppressed": r.suppressed,
     }
+
+
+def _visible(result: Any, principal: Principal) -> bool:
+    if "admin" in principal.roles:
+        return True
+    tenant_id = principal.tenant_id or principal.id
+    return bool(result.tenant_id == tenant_id)
 
 
 def _run_review(
@@ -108,6 +116,7 @@ def _run_review(
     pr_number: int | None,
     title: str,
     policy_pack: str,
+    tenant_id: str,
 ) -> Any:
     try:
         return store.review(
@@ -116,6 +125,7 @@ def _run_review(
             pr_number=pr_number,
             title=title,
             policy_pack=policy_pack,
+            tenant_id=tenant_id,
         )
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -158,6 +168,7 @@ def review(
         pr_number=body.pr_number,
         title=body.title,
         policy_pack=body.policy_pack,
+        tenant_id=tenant_id,
     )
     kit.audit.emit(
         actor=principal.id,
@@ -186,9 +197,8 @@ def get_review(
     review_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
 ) -> dict[str, Any]:
-    del principal
     result = store.get(review_id)
-    if result is None:
+    if result is None or not _visible(result, principal):
         raise HTTPException(status_code=404, detail="review not found")
     return _review_dict(result)
 
@@ -198,9 +208,8 @@ def get_sarif(
     review_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
 ) -> dict[str, Any]:
-    del principal
     result = store.get(review_id)
-    if result is None:
+    if result is None or not _visible(result, principal):
         raise HTTPException(status_code=404, detail="review not found")
     return to_sarif(result)
 
@@ -209,12 +218,12 @@ def get_sarif(
 def get_check_run(
     review_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
+    head_sha: str | None = None,
 ) -> dict[str, Any]:
-    del principal
     result = store.get(review_id)
-    if result is None:
+    if result is None or not _visible(result, principal):
         raise HTTPException(status_code=404, detail="review not found")
-    return to_check_run(result)
+    return to_check_run(result, head_sha=head_sha)
 
 
 @app.get("/v1/reviews")
@@ -222,9 +231,12 @@ def list_reviews(
     principal: Annotated[Principal, Depends(require_principal)],
     limit: int = 20,
 ) -> dict[str, Any]:
-    del principal
     limit = max(1, min(limit, 100))
-    items = list(reversed(store.reviews[-limit:]))
+    if "admin" in principal.roles:
+        items = list(reversed(store.reviews[-limit:]))
+    else:
+        tenant_id = principal.tenant_id or principal.id
+        items = store.list_for_tenant(tenant_id, limit=limit)
     return {
         "count": len(items),
         "reviews": [
@@ -237,6 +249,7 @@ def list_reviews(
                 "findings": len(r.findings),
                 "policy_pack": r.policy_pack,
                 "latency_ms": r.latency_ms,
+                "tenant_id": r.tenant_id,
             }
             for r in items
         ],
@@ -248,9 +261,12 @@ def list_traces(
     principal: Annotated[Principal, Depends(require_principal)],
     limit: int = 20,
 ) -> dict[str, Any]:
-    del principal
     limit = max(1, min(limit, 100))
-    items = list(reversed(store.traces[-limit:]))
+    if "admin" in principal.roles:
+        items = list(reversed(store.traces[-limit:]))
+    else:
+        tenant_id = principal.tenant_id or principal.id
+        items = store.traces_for_tenant(tenant_id, limit=limit)
     return {
         "count": len(items),
         "traces": [
@@ -262,6 +278,7 @@ def list_traces(
                 "finding_count": t.finding_count,
                 "latency_ms": t.latency_ms,
                 "policy_pack": t.policy_pack,
+                "tenant_id": t.tenant_id,
             }
             for t in items
         ],
@@ -303,14 +320,17 @@ def github_webhook(
     pr = body.pull_request
     pr_number = pr.get("number")
     title = str(pr.get("title") or f"PR webhook {body.action}")
+    head = pr.get("head") if isinstance(pr.get("head"), dict) else {}
+    head_sha = str(head.get("sha") or "") if isinstance(head, dict) else ""
     result = _run_review(
         diff=body.diff,
         repo=str(repo),
         pr_number=int(pr_number) if pr_number is not None else None,
         title=title,
         policy_pack=body.policy_pack,
+        tenant_id=tenant_id,
     )
-    check_run = to_check_run(result)
+    check_run = to_check_run(result, head_sha=head_sha or None)
     kit.audit.emit(
         actor=principal.id,
         action="webhook.github",

@@ -32,6 +32,7 @@ class ReviewResult:
     policy_pack: str = "default"
     latency_ms: int = 0
     suppressed: list[str] = field(default_factory=list)
+    tenant_id: str = ""
 
 
 @dataclass
@@ -43,6 +44,7 @@ class ReviewTrace:
     finding_count: int
     latency_ms: int
     policy_pack: str
+    tenant_id: str = ""
 
 
 @dataclass
@@ -59,8 +61,10 @@ class ReviewStore:
         if self.backend is None:
             return 0
         loaded = self.backend.load_recent(limit=500)
+        suppressions = self.backend.load_suppressions()
         with self._lock:
             self.reviews = list(loaded)
+            self.suppressions = set(suppressions)
             self.traces = [
                 ReviewTrace(
                     review_id=r.id,
@@ -70,6 +74,7 @@ class ReviewStore:
                     finding_count=len(r.findings),
                     latency_ms=r.latency_ms,
                     policy_pack=r.policy_pack,
+                    tenant_id=r.tenant_id,
                 )
                 for r in loaded
             ]
@@ -80,15 +85,18 @@ class ReviewStore:
             self.reviews.clear()
             self.traces.clear()
             self.suppressions.clear()
-        if self.backend is not None:
-            self.backend.clear()
+            if self.backend is not None:
+                self.backend.clear()
 
     def suppress(self, ids: list[str]) -> list[str]:
         """Suppress by rule id and/or finding fingerprint."""
         with self._lock:
             for item in ids:
                 self.suppressions.add(item)
-            return sorted(self.suppressions)
+            out = sorted(self.suppressions)
+            if self.backend is not None:
+                self.backend.save_suppressions(out)
+            return out
 
     def review(
         self,
@@ -98,6 +106,7 @@ class ReviewStore:
         pr_number: int | None = None,
         title: str = "",
         policy_pack: str = "default",
+        tenant_id: str = "",
     ) -> ReviewResult:
         started = time.perf_counter()
         pack = get_pack(policy_pack)
@@ -124,6 +133,7 @@ class ReviewStore:
             policy_pack=pack.id,
             latency_ms=latency_ms,
             suppressed=sorted(suppress),
+            tenant_id=tenant_id,
         )
         trace = ReviewTrace(
             review_id=result.id,
@@ -133,7 +143,11 @@ class ReviewStore:
             finding_count=len(findings),
             latency_ms=latency_ms,
             policy_pack=pack.id,
+            tenant_id=tenant_id,
         )
+        # Persist first so a failed write never leaves durable-only memory dirty.
+        if self.backend is not None:
+            self.backend.save_review(result)
         with self._lock:
             self.reviews.append(result)
             self.traces.append(trace)
@@ -141,8 +155,6 @@ class ReviewStore:
                 self.reviews = self.reviews[-500:]
             if len(self.traces) > 500:
                 self.traces = self.traces[-500:]
-        if self.backend is not None:
-            self.backend.save_review(result)
         return result
 
     def get(self, review_id: str) -> ReviewResult | None:
@@ -158,3 +170,13 @@ class ReviewStore:
                         self.reviews.append(found)
                 return found
         return None
+
+    def list_for_tenant(self, tenant_id: str, *, limit: int = 20) -> list[ReviewResult]:
+        with self._lock:
+            items = [r for r in self.reviews if r.tenant_id == tenant_id]
+            return list(reversed(items[-limit:]))
+
+    def traces_for_tenant(self, tenant_id: str, *, limit: int = 20) -> list[ReviewTrace]:
+        with self._lock:
+            items = [t for t in self.traces if t.tenant_id == tenant_id]
+            return list(reversed(items[-limit:]))
