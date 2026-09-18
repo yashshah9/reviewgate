@@ -398,6 +398,13 @@ def reload_store(
     """Drop in-memory reviews and rehydrate from durable backend (if configured)."""
     if "admin" not in principal.roles:
         raise HTTPException(status_code=403, detail="admin required")
+    if store.backend is None:
+        return {
+            "status": "noop",
+            "store": settings.store_driver,
+            "reviews": len(store.reviews),
+            "detail": "no durable backend; memory store left intact",
+        }
     with store._lock:
         store.reviews.clear()
         store.traces.clear()
