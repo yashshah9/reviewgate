@@ -25,4 +25,4 @@ jobs:
       - name: Unit tests
         run: pytest tests/test_api.py -q
       - name: Eval gate
-        run: reviewgate eval --min-pass-rate 1.0
+        run: reviewgate eval --min-pass-rate 1.0 --baseline evals/baseline.json

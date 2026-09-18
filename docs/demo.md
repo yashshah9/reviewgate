@@ -39,5 +39,5 @@ curl -s -X POST localhost:8092/v1/webhooks/github \
 ## 4. Eval gate (1 min)
 
 ```bash
-reviewgate eval --min-pass-rate 1.0
+reviewgate eval --min-pass-rate 1.0 --baseline evals/baseline.json
 ```

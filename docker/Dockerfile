@@ -7,7 +7,7 @@ COPY platformkit /deps/platformkit
 COPY reviewgate /app
 WORKDIR /app
 RUN pip install --no-cache-dir "/deps/platformkit[postgres,redis]" \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir ".[postgres]"
 EXPOSE 8092
 HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health')"
 CMD ["reviewgate", "serve", "--host", "0.0.0.0", "--port", "8092"]

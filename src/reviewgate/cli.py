@@ -5,11 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 import uvicorn
 
 from reviewgate.config import Settings
-from reviewgate.evals import run_golden_suite
+from reviewgate.evals import (
+    compare_to_baseline,
+    load_baseline,
+    run_golden_suite,
+    write_baseline,
+)
 
 
 def main() -> None:
@@ -22,6 +28,8 @@ def main() -> None:
 
     ev = sub.add_parser("eval", help="Run golden eval suite (CI gate)")
     ev.add_argument("--min-pass-rate", type=float, default=None)
+    ev.add_argument("--baseline", type=Path, default=None)
+    ev.add_argument("--write-baseline", type=Path, default=None)
 
     args = parser.parse_args()
     settings = Settings()
@@ -53,16 +61,46 @@ def main() -> None:
             ],
         }
         print(json.dumps(payload, indent=2))
+
+        if args.write_baseline is not None:
+            write_baseline(args.write_baseline, results, pass_rate=rate)
+            print(f"Wrote baseline → {args.write_baseline}", file=sys.stderr)
+
         minimum = (
             args.min_pass_rate
             if args.min_pass_rate is not None
             else settings.eval_min_pass_rate
         )
+        failed = False
         if rate < minimum:
             print(
                 f"EVAL GATE FAILED: pass_rate={rate:.2f} < min={minimum:.2f}",
                 file=sys.stderr,
             )
+            failed = True
+
+        baseline: dict[str, object] | None = None
+        baseline_path = args.baseline
+        if baseline_path is not None:
+            baseline = load_baseline(baseline_path)
+        elif args.write_baseline is None:
+            try:
+                baseline = load_baseline()
+                baseline_path = Path("(bundled)")
+            except FileNotFoundError:
+                baseline = None
+
+        if baseline is not None:
+            regressions = compare_to_baseline(results, baseline)
+            if regressions:
+                print("BASELINE REGRESSIONS:", file=sys.stderr)
+                for msg in regressions:
+                    print(f"  - {msg}", file=sys.stderr)
+                failed = True
+            else:
+                print(f"BASELINE OK ({baseline_path})", file=sys.stderr)
+
+        if failed:
             raise SystemExit(1)
         print(f"EVAL GATE PASSED: pass_rate={rate:.2f}", file=sys.stderr)
 

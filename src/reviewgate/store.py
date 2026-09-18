@@ -6,6 +6,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from threading import Lock
+from typing import Any
 
 from reviewgate.policy import get_pack
 from reviewgate.scanner import (
@@ -51,13 +52,36 @@ class ReviewStore:
     reviews: list[ReviewResult] = field(default_factory=list)
     traces: list[ReviewTrace] = field(default_factory=list)
     suppressions: set[str] = field(default_factory=set)
+    backend: Any | None = None
     _lock: Lock = field(default_factory=Lock)
+
+    def load(self) -> int:
+        if self.backend is None:
+            return 0
+        loaded = self.backend.load_recent(limit=500)
+        with self._lock:
+            self.reviews = list(loaded)
+            self.traces = [
+                ReviewTrace(
+                    review_id=r.id,
+                    repo=r.repo,
+                    decision=r.decision,
+                    risk_score=r.risk_score,
+                    finding_count=len(r.findings),
+                    latency_ms=r.latency_ms,
+                    policy_pack=r.policy_pack,
+                )
+                for r in loaded
+            ]
+        return len(loaded)
 
     def clear(self) -> None:
         with self._lock:
             self.reviews.clear()
             self.traces.clear()
             self.suppressions.clear()
+        if self.backend is not None:
+            self.backend.clear()
 
     def suppress(self, ids: list[str]) -> list[str]:
         """Suppress by rule id and/or finding fingerprint."""
@@ -117,6 +141,8 @@ class ReviewStore:
                 self.reviews = self.reviews[-500:]
             if len(self.traces) > 500:
                 self.traces = self.traces[-500:]
+        if self.backend is not None:
+            self.backend.save_review(result)
         return result
 
     def get(self, review_id: str) -> ReviewResult | None:

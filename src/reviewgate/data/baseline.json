@@ -1,0 +1,83 @@
+{
+  "pass_rate": 1.0,
+  "cases": {
+    "clean-refactor": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "allow",
+      "risk_score": 0.0,
+      "rule_ids": []
+    },
+    "aws-key-block": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "block",
+      "risk_score": 1.0,
+      "rule_ids": [
+        "secret-aws-key"
+      ]
+    },
+    "api-key-block": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "block",
+      "risk_score": 1.0,
+      "rule_ids": [
+        "secret-generic-api-key"
+      ]
+    },
+    "sql-injection": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "block",
+      "risk_score": 1.0,
+      "rule_ids": [
+        "inj-sql-format",
+        "inj-sql-fstring"
+      ]
+    },
+    "authz-bypass": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "block",
+      "risk_score": 0.75,
+      "rule_ids": [
+        "authz-allow-all"
+      ]
+    },
+    "pickle-danger": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "block",
+      "risk_score": 0.75,
+      "rule_ids": [
+        "danger-pickle"
+      ]
+    },
+    "debug-warn": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "warn",
+      "risk_score": 0.4,
+      "rule_ids": [
+        "policy-debug-true"
+      ]
+    },
+    "shell-true-warn": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "warn",
+      "risk_score": 0.4,
+      "rule_ids": [
+        "danger-shell-true"
+      ]
+    },
+    "no-false-positive-eval-name": {
+      "passed": true,
+      "reason": "ok",
+      "decision": "allow",
+      "risk_score": 0.0,
+      "rule_ids": []
+    }
+  }
+}

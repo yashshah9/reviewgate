@@ -456,7 +456,7 @@ wheels = [
 
 [[package]]
 name = "platformkit"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "../platformkit" }
 dependencies = [
     { name = "pydantic" },
@@ -808,7 +808,7 @@ wheels = [
 
 [[package]]
 name = "reviewgate"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -824,8 +824,12 @@ dev = [
     { name = "httpx" },
     { name = "mypy" },
     { name = "platformkit", extra = ["dev"] },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pytest" },
     { name = "ruff" },
+]
+postgres = [
+    { name = "psycopg", extra = ["binary"] },
 ]
 
 [package.metadata]
@@ -835,14 +839,16 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.9" },
     { name = "platformkit", editable = "../platformkit" },
     { name = "platformkit", extras = ["dev"], marker = "extra == 'dev'", editable = "../platformkit" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pydantic-settings", specifier = ">=2.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "reviewgate", extras = ["postgres"], marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "structlog", specifier = ">=24.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["postgres", "dev"]
 
 [[package]]
 name = "ruff"

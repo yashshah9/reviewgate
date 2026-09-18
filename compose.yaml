@@ -32,6 +32,7 @@ services:
       REVIEWGATE_AUTH_DRIVER: api_key
       REVIEWGATE_AUDIT_DRIVER: postgres
       REVIEWGATE_QUEUE_DRIVER: redis
+      REVIEWGATE_STORE_DRIVER: postgres
       REVIEWGATE_REDIS_URL: redis://redis:6379/0
       REVIEWGATE_POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/reviewgate
       REVIEWGATE_API_KEYS: "dev-key:demo-tenant"

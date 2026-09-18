@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     queue_driver: str = "memory"
     redis_url: str = "redis://localhost:6379/0"
     postgres_dsn: str = "postgresql://localhost:5432/reviewgate"
+    store_driver: str = "memory"  # memory | postgres
     eval_min_pass_rate: float = 1.0
     # gate fails (block) when risk_score >= block_threshold
     block_threshold: float = 0.7

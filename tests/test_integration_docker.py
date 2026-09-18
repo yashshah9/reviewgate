@@ -98,3 +98,20 @@ def test_docker_review_webhook_eval() -> None:
     health = httpx.get(f"{BASE}/health", timeout=5.0).json()
     assert health["queue"] == "redis"
     assert health["audit"] == "postgres"
+    assert health["store"] == "postgres"
+
+    # Persistence: wipe memory via reload from Postgres; review still present
+    reload = httpx.post(
+        f"{BASE}/v1/admin/reload",
+        headers={"Authorization": "Bearer admin-key"},
+        timeout=5.0,
+    )
+    assert reload.status_code == 200
+    assert reload.json()["reviews"] >= 1
+    got = httpx.get(
+        f"{BASE}/v1/reviews/{body['id']}",
+        headers=AUTH,
+        timeout=5.0,
+    ).json()
+    assert got["decision"] == "block"
+    assert got["id"] == body["id"]

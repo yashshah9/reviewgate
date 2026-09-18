@@ -35,6 +35,7 @@ def client() -> Iterator[TestClient]:
     api_module.settings.auth_driver = "api_key"
     api_module.settings.audit_driver = "memory"
     api_module.settings.queue_driver = "memory"
+    api_module.settings.store_driver = "memory"
     api_module.kit = build_kit(api_module.settings)
     api_module.store = ReviewStore(
         block_threshold=api_module.settings.block_threshold,
@@ -196,3 +197,63 @@ def test_golden_suite_gate() -> None:
     failed = [r for r in results if not r.passed]
     assert failed == [], [(r.case.id, r.reason, r.decision, r.risk) for r in failed]
     assert rate == 1.0
+
+
+def test_baseline_compare_detects_regression() -> None:
+    from reviewgate.evals import (
+        EvalCase,
+        EvalResult,
+        compare_to_baseline,
+        snapshot_from_results,
+    )
+
+    results, rate = run_golden_suite()
+    baseline = snapshot_from_results(results, pass_rate=rate)
+    assert compare_to_baseline(results, baseline) == []
+    broken = [
+        EvalResult(
+            case=EvalCase(id=results[0].case.id, diff="x"),
+            passed=False,
+            reason="forced",
+            decision="allow",
+            risk=0.0,
+            rule_ids=[],
+        ),
+        *results[1:],
+    ]
+    regs = compare_to_baseline(broken, baseline)
+    assert any(results[0].case.id in m and "was pass, now fail" in m for m in regs)
+
+
+def test_memory_backend_reload_roundtrip() -> None:
+    """Durable backend contract without Postgres: fake store + reload."""
+    from reviewgate.store import ReviewResult, ReviewStore
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.rows: list[ReviewResult] = []
+
+        def ensure_schema(self) -> None:
+            return None
+
+        def load_recent(self, *, limit: int = 500) -> list[ReviewResult]:
+            return list(self.rows)[-limit:]
+
+        def save_review(self, review: ReviewResult) -> None:
+            self.rows.append(review)
+
+        def clear(self) -> None:
+            self.rows.clear()
+
+    backend = FakeStore()
+    store = ReviewStore(backend=backend)
+    result = store.review(diff=SECRET, repo="acme/app")
+    assert result.decision == "block"
+    assert len(backend.rows) == 1
+    with store._lock:
+        store.reviews.clear()
+        store.traces.clear()
+    assert store.reviews == []
+    assert store.load() == 1
+    assert store.get(result.id) is not None
+    assert store.get(result.id).decision == "block"  # type: ignore[union-attr]

@@ -98,3 +98,78 @@ def run_golden_suite(
     results = run_eval(cases, block_threshold=block_threshold, warn_threshold=warn_threshold)
     rate = sum(1 for r in results if r.passed) / len(results) if results else 0.0
     return results, rate
+
+
+def resolve_baseline_path(path: Path | None = None) -> Path:
+    if path is not None:
+        return path
+    bundled = Path(__file__).resolve().parent / "data" / "baseline.json"
+    if bundled.is_file():
+        return bundled
+    repo = Path(__file__).resolve().parents[2] / "evals" / "baseline.json"
+    if repo.is_file():
+        return repo
+    docker = Path("/app/evals/baseline.json")
+    if docker.is_file():
+        return docker
+    raise FileNotFoundError("evals/baseline.json not found")
+
+
+def snapshot_from_results(results: list[EvalResult], *, pass_rate: float) -> dict[str, object]:
+    return {
+        "pass_rate": round(pass_rate, 4),
+        "cases": {
+            r.case.id: {
+                "passed": r.passed,
+                "reason": r.reason,
+                "decision": r.decision,
+                "risk_score": round(r.risk, 4),
+                "rule_ids": sorted(r.rule_ids),
+            }
+            for r in results
+        },
+    }
+
+
+def write_baseline(path: Path, results: list[EvalResult], *, pass_rate: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(snapshot_from_results(results, pass_rate=pass_rate), indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def load_baseline(path: Path | None = None) -> dict[str, object]:
+    raw: object = json.loads(resolve_baseline_path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise TypeError("baseline root must be an object")
+    return raw
+
+
+def compare_to_baseline(results: list[EvalResult], baseline: dict[str, object]) -> list[str]:
+    """Return regression messages (empty = ok)."""
+    regressions: list[str] = []
+    prior_cases = baseline.get("cases", {})
+    if not isinstance(prior_cases, dict):
+        return ["baseline.cases missing or invalid"]
+    current = {r.case.id: r for r in results}
+    for case_id, prior in prior_cases.items():
+        if not isinstance(prior, dict):
+            continue
+        now = current.get(str(case_id))
+        if now is None:
+            regressions.append(f"{case_id}: missing from current suite")
+            continue
+        if prior.get("passed") is True and not now.passed:
+            regressions.append(f"{case_id}: was pass, now fail ({now.reason})")
+            continue
+        prior_decision = prior.get("decision")
+        if (
+            prior.get("passed") is True
+            and prior_decision
+            and now.decision != prior_decision
+        ):
+            regressions.append(
+                f"{case_id}: decision changed {prior_decision!r} → {now.decision!r}"
+            )
+    return regressions

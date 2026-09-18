@@ -14,14 +14,11 @@ from reviewgate.evals import EvalCase, run_eval
 from reviewgate.export import to_check_run, to_sarif
 from reviewgate.platform import build_kit
 from reviewgate.policy import list_packs
-from reviewgate.store import ReviewStore
+from reviewgate.store_factory import build_store
 
 settings = Settings()
 kit = build_kit(settings)
-store = ReviewStore(
-    block_threshold=settings.block_threshold,
-    warn_threshold=settings.warn_threshold,
-)
+store = build_store(settings)
 
 app = FastAPI(title="reviewgate", version=__version__)
 
@@ -132,6 +129,7 @@ def health() -> dict[str, Any]:
         "auth": settings.auth_driver,
         "audit": settings.audit_driver,
         "queue": settings.queue_driver,
+        "store": settings.store_driver,
         "reviews": len(store.reviews),
         "traces": len(store.traces),
         "block_threshold": settings.block_threshold,
@@ -391,3 +389,21 @@ def reset_store(
         raise HTTPException(status_code=403, detail="admin required")
     store.clear()
     return {"status": "cleared"}
+
+
+@app.post("/v1/admin/reload")
+def reload_store(
+    principal: Annotated[Principal, Depends(require_principal)],
+) -> dict[str, Any]:
+    """Drop in-memory reviews and rehydrate from durable backend (if configured)."""
+    if "admin" not in principal.roles:
+        raise HTTPException(status_code=403, detail="admin required")
+    with store._lock:
+        store.reviews.clear()
+        store.traces.clear()
+    loaded = store.load()
+    return {
+        "status": "reloaded",
+        "store": settings.store_driver,
+        "reviews": loaded,
+    }

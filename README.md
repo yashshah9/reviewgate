@@ -1,6 +1,6 @@
 # reviewgate
 
-Production-shaped **PR security gate**: policy packs, SARIF / Check Run exports, risk scoring, suppressions, webhook stub, and an offline eval promotion gate.
+Production-shaped **PR security gate**: policy packs, SARIF / Check Run exports, risk scoring, suppressions, webhook stub, eval baselines, and optional Postgres review persistence.
 
 Uses [platformkit](https://github.com/yashshah9/platformkit) for pluggable auth/audit/queues.
 
@@ -10,7 +10,7 @@ Uses [platformkit](https://github.com/yashshah9/platformkit) for pluggable auth/
 uv venv --python 3.12
 uv pip install -e ../platformkit -e ".[dev]"
 uv run pytest tests/test_api.py -q
-uv run reviewgate eval --min-pass-rate 1.0
+uv run reviewgate eval --min-pass-rate 1.0 --baseline evals/baseline.json
 uv run reviewgate serve   # :8092
 ```
 
@@ -36,6 +36,7 @@ docker compose run --rm integration
 | POST | `/v1/suppressions` | admin suppress rule ids / fingerprints |
 | POST | `/v1/eval` | run eval cases against scanners |
 | POST | `/v1/admin/reset` | clear store (admin) |
+| POST | `/v1/admin/reload` | rehydrate reviews from durable store (admin) |
 
 ## Docs
 

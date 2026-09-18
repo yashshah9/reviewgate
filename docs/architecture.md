@@ -7,7 +7,8 @@ unified diff ──► policy pack (default | secrets | security | strict)
               ──► rule scanners (secrets / injection / authz / dangerous / policy)
               ──► fingerprints + risk_score + gate (allow | warn | block)
               ──► PR comment + SARIF + Check Run + audit + queue
-eval          ──► golden cases gate (CI)
+eval          ──► golden cases + baseline regression gate (CI)
+store         ──► memory (default) | postgres (compose)
 ```
 
 ## Policy packs
@@ -38,11 +39,22 @@ else                     → allow
 
 Defaults: warn `0.35`, block `0.7`.
 
+## Review store
+
+| Driver | Behavior |
+|--------|----------|
+| `memory` | in-process only (default) |
+| `postgres` | `reviewgate_reviews` table; load on boot; `POST /v1/admin/reload` rehydrates |
+
+Compose sets `REVIEWGATE_STORE_DRIVER=postgres`.
+
 ## Eval promotion gate
 
 ```bash
-reviewgate eval --min-pass-rate 1.0
+reviewgate eval --min-pass-rate 1.0 --baseline evals/baseline.json
+# refresh snapshot after intentional scanner changes:
+reviewgate eval --write-baseline evals/baseline.json
 ```
 
 Golden cases live in `evals/cases.json` (bundled under `reviewgate/data/`).
-CI fails when the pass rate drops.
+CI fails when the pass rate drops or a previously-passing case regresses.
