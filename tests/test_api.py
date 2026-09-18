@@ -239,6 +239,12 @@ def test_memory_backend_reload_roundtrip() -> None:
         def load_recent(self, *, limit: int = 500) -> list[ReviewResult]:
             return list(self.rows)[-limit:]
 
+        def get_review(self, review_id: str) -> ReviewResult | None:
+            for r in self.rows:
+                if r.id == review_id:
+                    return r
+            return None
+
         def save_review(self, review: ReviewResult) -> None:
             self.rows.append(review)
 
@@ -257,3 +263,9 @@ def test_memory_backend_reload_roundtrip() -> None:
     assert store.load() == 1
     assert store.get(result.id) is not None
     assert store.get(result.id).decision == "block"  # type: ignore[union-attr]
+
+    # get() falls back to backend when memory was trimmed
+    with store._lock:
+        store.reviews.clear()
+    assert store.get(result.id) is not None
+    assert store.get(result.id).id == result.id  # type: ignore[union-attr]

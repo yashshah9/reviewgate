@@ -36,6 +36,8 @@ class ReviewBackend(Protocol):
 
     def load_recent(self, *, limit: int = 500) -> list[ReviewResult]: ...
 
+    def get_review(self, review_id: str) -> ReviewResult | None: ...
+
     def clear(self) -> None: ...
 
 
@@ -132,14 +134,31 @@ class PostgresReviewStore:
             conn.commit()
 
     def load_recent(self, *, limit: int = 500) -> list[ReviewResult]:
+        # Newest `limit` rows, returned oldest→newest (matches in-memory trim).
         with self._psycopg.connect(self._dsn) as conn:
             rows = conn.execute(
                 "SELECT id, repo, pr_number, title, risk_score, decision, findings, "
                 "comment, policy_pack, latency_ms, suppressed, created_at "
-                "FROM reviewgate_reviews ORDER BY created_at ASC LIMIT %s",
+                "FROM ("
+                "  SELECT id, repo, pr_number, title, risk_score, decision, findings, "
+                "  comment, policy_pack, latency_ms, suppressed, created_at "
+                "  FROM reviewgate_reviews ORDER BY created_at DESC LIMIT %s"
+                ") recent ORDER BY created_at ASC",
                 (limit,),
             ).fetchall()
         return [_review_from_row(r) for r in rows]
+
+    def get_review(self, review_id: str) -> ReviewResult | None:
+        with self._psycopg.connect(self._dsn) as conn:
+            row = conn.execute(
+                "SELECT id, repo, pr_number, title, risk_score, decision, findings, "
+                "comment, policy_pack, latency_ms, suppressed, created_at "
+                "FROM reviewgate_reviews WHERE id = %s",
+                (review_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _review_from_row(row)
 
     def clear(self) -> None:
         with self._psycopg.connect(self._dsn) as conn:

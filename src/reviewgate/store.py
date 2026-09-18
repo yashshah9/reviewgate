@@ -150,4 +150,11 @@ class ReviewStore:
             for r in self.reviews:
                 if r.id == review_id:
                     return r
+        if self.backend is not None:
+            found: ReviewResult | None = self.backend.get_review(review_id)
+            if found is not None:
+                with self._lock:
+                    if not any(r.id == found.id for r in self.reviews):
+                        self.reviews.append(found)
+                return found
         return None
