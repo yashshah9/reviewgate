@@ -53,6 +53,16 @@ def test_docker_review_webhook_eval() -> None:
     assert body["decision"] == "block"
     assert body["risk_score"] >= 0.7
 
+    traces = httpx.get(f"{BASE}/v1/traces", headers=AUTH, timeout=5.0).json()
+    assert traces["count"] >= 1
+
+    sarif = httpx.get(
+        f"{BASE}/v1/reviews/{body['id']}/sarif",
+        headers=AUTH,
+        timeout=5.0,
+    ).json()
+    assert sarif["version"] == "2.1.0"
+
     wh = httpx.post(
         f"{BASE}/v1/webhooks/github",
         headers=AUTH,
@@ -64,7 +74,10 @@ def test_docker_review_webhook_eval() -> None:
         },
         timeout=10.0,
     )
-    assert wh.json()["review"]["decision"] == "block"
+    wh_body = wh.json()
+    assert wh_body["review"]["decision"] == "block"
+    assert wh_body["check_run"]["conclusion"] == "failure"
+    assert wh_body["sarif"]["version"] == "2.1.0"
 
     ev = httpx.post(
         f"{BASE}/v1/eval",

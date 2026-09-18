@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -42,6 +43,7 @@ class Finding:
     line: int | None
     excerpt: str
     remediation: str
+    fingerprint: str = ""
 
 
 # Added lines only (unified diff): track path + line numbers
@@ -180,14 +182,29 @@ def added_lines(diff: str) -> list[tuple[str, int | None, str]]:
     return out
 
 
-def scan_diff(diff: str, *, suppress: set[str] | None = None) -> list[Finding]:
+def finding_fingerprint(*, rule_id: str, file: str, excerpt: str) -> str:
+    raw = f"{rule_id}|{file}|{excerpt}".encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def scan_diff(
+    diff: str,
+    *,
+    suppress: set[str] | None = None,
+    rules: list[Rule] | None = None,
+) -> list[Finding]:
     suppress = suppress or set()
+    active = rules if rules is not None else RULES
     findings: list[Finding] = []
     for path, line_no, text in added_lines(diff):
-        for rule in RULES:
+        for rule in active:
             if rule.id in suppress:
                 continue
             if rule.pattern.search(text):
+                excerpt = text.strip()[:200]
+                fp = finding_fingerprint(rule_id=rule.id, file=path, excerpt=excerpt)
+                if fp in suppress:
+                    continue
                 findings.append(
                     Finding(
                         rule_id=rule.id,
@@ -196,8 +213,9 @@ def scan_diff(diff: str, *, suppress: set[str] | None = None) -> list[Finding]:
                         category=rule.category,
                         file=path,
                         line=line_no,
-                        excerpt=text.strip()[:200],
+                        excerpt=excerpt,
                         remediation=rule.remediation,
+                        fingerprint=fp,
                     )
                 )
     return findings

@@ -118,6 +118,49 @@ def test_suppression_requires_admin(client: TestClient) -> None:
     assert body["findings"] == []
 
 
+def test_sarif_check_run_traces_and_policy(client: TestClient) -> None:
+    packs = client.get("/v1/policies", headers=AUTH).json()["packs"]
+    assert any(p["id"] == "secrets" for p in packs)
+
+    body = client.post(
+        "/v1/review",
+        headers=AUTH,
+        json={"diff": SECRET, "repo": "acme/app", "policy_pack": "secrets"},
+    ).json()
+    assert body["policy_pack"] == "secrets"
+    assert body["decision"] == "block"
+    assert body["findings"][0]["fingerprint"]
+    assert "latency_ms" in body
+
+    rid = body["id"]
+    sarif = client.get(f"/v1/reviews/{rid}/sarif", headers=AUTH).json()
+    assert sarif["version"] == "2.1.0"
+    assert sarif["runs"][0]["results"]
+    assert sarif["runs"][0]["properties"]["decision"] == "block"
+
+    check = client.get(f"/v1/reviews/{rid}/check-run", headers=AUTH).json()
+    assert check["conclusion"] == "failure"
+    assert check["output"]["annotations"]
+
+    traces = client.get("/v1/traces", headers=AUTH).json()
+    assert traces["count"] >= 1
+    assert traces["traces"][0]["policy_pack"] == "secrets"
+
+    # secrets pack ignores soft DEBUG findings
+    debug = """diff --git a/main.py b/main.py
+--- a/main.py
++++ b/main.py
+@@ -1,1 +1,2 @@
++DEBUG = True
+"""
+    soft = client.post(
+        "/v1/review",
+        headers=AUTH,
+        json={"diff": debug, "policy_pack": "secrets"},
+    ).json()
+    assert soft["decision"] == "allow"
+
+
 def test_eval_endpoint(client: TestClient) -> None:
     resp = client.post(
         "/v1/eval",

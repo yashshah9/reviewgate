@@ -3,25 +3,30 @@
 ## Pipeline
 
 ```
-unified diff ──► rule scanners (secrets / injection / authz / dangerous / policy)
-              ──► risk_score + gate decision (allow | warn | block)
-              ──► PR comment markdown + audit + queue event
+unified diff ──► policy pack (default | secrets | security | strict)
+              ──► rule scanners (secrets / injection / authz / dangerous / policy)
+              ──► fingerprints + risk_score + gate (allow | warn | block)
+              ──► PR comment + SARIF + Check Run + audit + queue
 eval          ──► golden cases gate (CI)
 ```
 
-## Scanners
+## Policy packs
 
-Deterministic regex/rules over **added lines** only (unified diff). Categories:
+| Pack | Scope |
+|------|-------|
+| `default` | all built-in rules |
+| `secrets` | secrets category only |
+| `security` | secrets + injection + authz + dangerous |
+| `strict` | critical + high severity only |
 
-| Category | Examples |
-|----------|----------|
-| secrets | AWS keys, API tokens, private key PEM |
-| injection | SQL f-strings / format |
-| authz | `allow_all`, auth bypass comments |
-| dangerous | `eval`/`exec`, `pickle.loads`, `shell=True` |
-| policy | `DEBUG=True`, insecure HTTP oauth URLs |
+Pass `policy_pack` on `/v1/review` or the GitHub webhook stub.
 
-Swap rule packs or add Semgrep later without changing the HTTP surface.
+## Exports
+
+- **SARIF 2.1.0** — `GET /v1/reviews/{id}/sarif` (CI upload / code scanning)
+- **Check Run** — `GET /v1/reviews/{id}/check-run` (GitHub Checks API shape)
+
+Findings include stable `fingerprint` values for suppressions.
 
 ## Gate
 
@@ -32,10 +37,6 @@ else                     → allow
 ```
 
 Defaults: warn `0.35`, block `0.7`.
-
-## GitHub App (stub)
-
-`POST /v1/webhooks/github` accepts PR metadata + a unified diff and returns the same review payload a real App would post as a check/comment. Wire a real App installation next without changing scoring.
 
 ## Eval promotion gate
 
